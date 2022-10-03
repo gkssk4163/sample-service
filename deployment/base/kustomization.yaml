@@ -1,0 +1,5 @@
+resources:
+- sample.yaml
+- service.yaml
+- config.yaml
+- ingress.yaml

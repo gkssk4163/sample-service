@@ -1,0 +1,98 @@
+def label = "bootcamp-${UUID.randomUUID().toString()}"
+
+/* -------- functions ---------- */
+def notifySlack(STATUS, COLOR) {
+	slackSend (channel: '#bootcamp', color: COLOR, message: STATUS+" : " +  "${env.JOB_NAME} [${env.BUILD_NUMBER}] (${env.BUILD_URL})")
+}
+
+
+/* ------------------------------ */
+
+
+// notifySlack("STARTED", "#FFFF00")
+
+
+podTemplate(containers: [
+    containerTemplate(name: 'maven', image: 'maven:3.8.1-jdk-8', command: 'sleep', args: '99d'),
+	containerTemplate(name: "docker", image: "docker:latest", ttyEnabled: true, command: "cat"),
+	containerTemplate(name: "kubectl", image: "lachlanevenson/k8s-kubectl", command: "cat", ttyEnabled: true),
+	containerTemplate(name: "scanner", image: "newtmitch/sonar-scanner", ttyEnabled: true, command: "cat"),
+	containerTemplate(name: 'podman', image: 'ibmcase/podman:ubuntu-16.04', ttyEnabled: true, command: 'cat', privileged: true)    
+  ],
+  	//volume mount
+  volumes: [
+		nfsVolume(mountPath: "/root/.m2", serverAddress: '169.56.100.99', serverPath: '/data/srv/nfs/.m2', readOnly: false)
+	]
+) 
+{
+	node(POD_LABEL) {
+	
+               environment {
+                   previousTag='dev'
+               }
+		// Git clone from Source Repository.
+		stage("Get Source") {
+                    git branch: 'msa', url: 'https://gitlab.com/nexweb/sample-service.git'
+		} 
+
+		//-- 환경변수 파일 읽어서 변수값 셋팅 
+		String stageName = ""
+            
+		def props = readProperties  file:"deployment/pipeline.properties"
+		
+		// Docker Hub Info.
+		def tag = props["version"]
+		def dockerRegistry = props["dockerRegistry"]
+		def credentialRegistry=props["credentialRegistry"]
+		def image = props["image"]
+
+		// Base Directory
+		def baseDir = props["baseDir"]
+		def baseDeployDir = props["baseDeployDir"]
+        
+		// Kubernetes
+		def deployment = props["deployment"]
+		def config = props["config"]
+		def service = props["service"]
+		def ingress = props["ingress"]
+		def selector_key = props["selector_key"]
+		def selector_val = props["selector_val"]
+		def namespace = props["namespace"] 
+
+		try {
+
+       			stageName = "Build maven project"
+
+			// Deploy App to Cluster in Kubernetes
+			stage( "Modify manifest and Push" ) {
+                            sh("""
+                                git config --global user.name "jgyun"
+                                git config --global user.email "nexweb1@gmail.com"
+								git credentialsId: 'gitlab-nexweb1', url: 'https://gitlab.com/nexweb/argocd-examples.git'
+								
+                            """)
+
+                            script {
+                                previousTag = sh(script: 'echo `expr ${BUILD_NUMBER} - 1`', returnStdout: true).trim()                            
+                            }
+                            
+
+                            withCredentials([usernamePassword(credentialsId: 'gitlab-nexweb1', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                                sh("""
+                                    git config --local credential.helper "if() { echo username=\\$GIT_USERNAME; echo password=\\$GIT_PASSWORD; }; f"
+                                    echo ${previousTag}
+                                    sed -i 's/sample:(.+)/sample:${BUILD_NUMBER}/g' ./guestbook/deployment.yaml
+                                    cat ./geustbook/deployment.yaml|grep image
+                                """)
+                            }
+			}
+                        echo "**** FINISH ALL STAGES : SUCCESS"
+                        echo "**** notifySlack"
+                        //notifySlack("${currentBuild.currentResult}", "#00FF00")
+		} catch(e) {
+			currentBuild.result = "FAILED"
+			//notifySlack("${currentBuild.currentResult}", "#FF0000")
+			//notifyMail("${currentBuild.currentResult}", "${email_recipients}")
+		}
+	}
+}

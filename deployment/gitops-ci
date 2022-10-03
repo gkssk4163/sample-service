@@ -1,0 +1,143 @@
+def label = "bootcamp-${UUID.randomUUID().toString()}"
+
+/* -------- functions ---------- */
+def notifySlack(STATUS, COLOR) {
+	slackSend (channel: '#bootcamp', color: COLOR, message: STATUS+" : " +  "${env.JOB_NAME} [${env.BUILD_NUMBER}] (${env.BUILD_URL})")
+}
+
+
+/* ------------------------------ */
+//notifySlack("STARTED", "#FFFF00")
+
+
+podTemplate(containers: [
+	containerTemplate(name: 'maven', image: 'maven:3.8.1-jdk-8', command: 'sleep', args: '99d'),
+	containerTemplate(name: "docker", image: "docker:latest", ttyEnabled: true, command: "cat"),
+	containerTemplate(name: "kubectl", image: "lachlanevenson/k8s-kubectl", command: "cat", ttyEnabled: true),
+	containerTemplate(name: "scanner", image: "newtmitch/sonar-scanner", ttyEnabled: true, command: "cat"),
+	containerTemplate(name: 'podman', image: 'ibmcase/podman:ubuntu-16.04', ttyEnabled: true, command: 'cat', privileged: true)    
+	],
+  	//volume mount
+  	volumes: [
+		nfsVolume(mountPath: "/root/.m2", serverAddress: '169.56.100.99', serverPath: '/data/srv/nfs/.m2', readOnly: false)
+	]
+  ) {
+    node(POD_LABEL) {
+        environment {
+		previousTag='dev'
+		today=''
+		IMAGE_TAG=''
+		IMAGE='sample'
+        }
+
+        stage('Get a Maven project') {
+		git url: 'https://gitlab.com/nexweb/sample-service.git', branch: 'msa'
+        }
+        
+		//-- 환경변수 파일 읽어서 변수값 셋팅
+	String stageName = ""
+
+	// Docker Hub Info.
+	def props = readProperties  file:"deployment/pipeline.properties"
+	def tag = props["version"]
+	def dockerRegistry = props["dockerRegistry"]
+	def credentialRegistry=props["credentialRegistry"]
+	def image = props["image"]
+
+        // Base Directory
+        def baseDir = props["baseDir"]
+        def baseDeployDir = props["baseDeployDir"]
+       
+        // Git commit and push
+        def credentialGit=props["credentialGit"]
+        def user = props["username"]
+        def email = props["email"]
+	def imageShortName = props["imageShortName"]
+	def deployment = props["deployment"]
+	def gitRepositoryUrl = props["gitRepositoryUrl"]
+	def commitMessage = props["commitMessage"]
+		
+	try {
+
+       		stageName = "Build maven project"
+
+		// Build Source from Repository in gitlab
+		stage(stageName) {
+			echo "**** START : " + stageName
+			def _dir = pwd();
+			echo "path : ${_dir}"
+			echo "baseDir : ${baseDir}"
+			echo "baseDeployDir : ${baseDeployDir}"
+			sh "ls -al"
+			container('maven') {
+				sh "mvn -B -f ${baseDir} clean package -Dmaven.testSkips=true "
+				echo "*** RESULT ***"
+				sh "pwd"
+				sh "ls -al ${baseDir}/target"
+			}
+		}
+			
+		// Build Docker, Push Image to Docker Hub Repository.
+		stage("Build Microservice image") {
+			script {
+       				previousTag = sh(script: 'echo `expr ${BUILD_NUMBER} - 1`', returnStdout: true).trim()    
+				IMAGE_TAG =  sh(script: 'echo "dev-$BUILD_NUMBER"', returnStdout: true).trim()                      
+                	}
+                
+			container("podman") {
+				withCredentials([
+					usernamePassword(
+				        credentialsId: "${credentialRegistry}",
+				        usernameVariable: 'USER',
+				        passwordVariable: 'PASSWORD'
+			    	)]) 
+				{
+					sh "podman login --tls-verify=false --username ${USER} --password ${PASSWORD} ${dockerRegistry}"
+					sh "podman build -f ./deployment/Dockerfile -t ${image}:${IMAGE_TAG} ."
+					sh "podman push ${image}:${IMAGE_TAG}"
+					sh "podman tag ${image}:${IMAGE_TAG} ${image}:dev"
+					sh "podman push ${image}:dev"
+
+				}
+			}
+		}
+
+		stage('Clone the manifest from git') {
+            		git url: 'https://gitlab.com/msa2021/bootcamp-gitops.git', branch: 'dev'
+        	}
+
+		stage( "Modify manifest and Push" ) {
+                	withCredentials([
+				usernamePassword(
+				credentialsId: "${credentialGit}",
+				usernameVariable: 'SCM_USER',
+				passwordVariable: 'SCM_PASSWORD'
+			]) 
+			{            
+                    		sh("""
+                        		git config --global user.name "${user}"
+                        		git config --global user.email "${email}"
+    
+                        		echo "${IMAGE_TAG}"
+                        		echo 
+                        		echo "${SCM_USER}:${SCM_PASSWORD}"
+                        		sed -i 's/$imageShortName:.*/$imageShortName:$IMAGE_TAG/g' "${deployment}"
+					cat "${deployment}" | grep image
+
+					git add "${deployment}"
+					git commit -m "${commitMessage}:$env.BUILD_NUMBER"
+					git push "https://$SCM_USER:$SCM_PASSWORD@$gitRepositoryUrl"
+				""")
+			} 
+		}
+
+		echo "**** FINISH ALL STAGES : SUCCESS"
+		echo "**** notifySlack"	
+		//notifySlack("${currentBuild.currentResult}", "#00FF00")
+	} catch(e) {
+		currentBuild.result = "FAILED"
+		//notifySlack("${currentBuild.currentResult}", "#FF0000")
+		//notifyMail("${currentBuild.currentResult}", "${email_recipients}")
+	}	
+    }
+}
