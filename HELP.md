@@ -1,5 +1,4 @@
-# Getting Started
-
+## Getting Started
 
 tekton EventListener tekton v1
 
