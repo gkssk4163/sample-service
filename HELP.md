@@ -1,4 +1,4 @@
 ## Getting Started
 
-tekton EventListener tekton v4
+tekton EventListener tekton v1
 
