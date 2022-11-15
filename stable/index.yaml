@@ -9,6 +9,6 @@ entries:
     name: sample
     type: application
     urls:
-    - https://yoonjk.github.io/sample-service/stable/sample-0.1.0.tgz
-    version: 0.1.0
+    - https://yoonjk.github.io/sample-service/stable/sample-0.2.0.tgz
+    version: 0.2.0
 generated: "2022-11-15T13:31:53.955485+09:00"
