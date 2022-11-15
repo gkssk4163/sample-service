@@ -8,7 +8,7 @@ image:
   repository: nexweb1/sample
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "dev"
+  tag: "v2"
 
 imagePullSecrets: []
 nameOverride: ""
