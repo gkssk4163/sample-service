@@ -28,7 +28,7 @@ spec:
         - name: kaniko-secret
           mountPath: /kaniko/.docker
     - name: openshift-cli
-      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      image: docker.io/nexweb1/cli:latest
       imagePullPolicy: Always
       command:
         - sleep
