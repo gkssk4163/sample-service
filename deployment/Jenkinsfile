@@ -7,7 +7,7 @@ pipeline {
   agent {
     kubernetes {
       yamlFile 'deployment/openshift-pod-template.yaml'
-      cloud 'openshift'
+      cloud 'openshift-ibm'
       defaultContainer 'maven'
     }
   }
@@ -93,7 +93,7 @@ pipeline {
       steps {
         container('openshift-cli') {
             script {
-                  withCredentials([string(credentialsId: 'openshift-token', variable: 'secret')]) {
+                  withCredentials([string(credentialsId: 'openshift-ibm-token', variable: 'secret')]) {
                     echo "My secret text is '${secret}'"
                     
                     sh "oc login --token='${secret}' --server=${apiserver}"
