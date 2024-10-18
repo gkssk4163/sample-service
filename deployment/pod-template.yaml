@@ -54,7 +54,7 @@ spec:
       emptyDir: {}
     - name: docker-credentials
       secret:
-        secretName: regcred
+        secretName: docker-credentials
         items:
           - key: .dockerconfigjson
             path: config.json    
